@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -10,14 +11,18 @@ import cv2
 import psycopg
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from biometria import FotoInvalida, decodificar, representar, verificar
+from biometria import FotoInvalida, decodificar, representar, verificar_pasos
 
 BLOBS = Path(os.getenv("BLOB_DIR", "/blobs"))
 FRONT_URL = os.getenv("FRONT_URL", "http://localhost:8080").rstrip("/")
 MAX_BYTES = 5 * 1024 * 1024
+# Solo para desarrollo local: enlaces reutilizables (30 días, intentos ilimitados) y panel técnico.
+MODO_DESARROLLO = os.getenv("MODO_DESARROLLO", "0") == "1"
 app = FastAPI(title="Demo de validación de identidad", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -150,11 +155,11 @@ def crear_solicitud(datos: SolicitudNueva, x_admin_key: str | None = Header(defa
         with conexion() as conn:
             nueva = conn.execute(
                 """
-                INSERT INTO solicitudes (dui, id_conversacion, token_hash)
-                VALUES (%s, %s, %s)
+                INSERT INTO solicitudes (dui, id_conversacion, token_hash, expires_at)
+                VALUES (%s, %s, %s, now() + %s::interval)
                 RETURNING id_solicitud, expires_at
                 """,
-                (dui, conversacion, resumir_token(token)),
+                (dui, conversacion, resumir_token(token), "30 days" if MODO_DESARROLLO else "30 minutes"),
             ).fetchone()
     except psycopg.errors.ForeignKeyViolation as error:
         raise HTTPException(404, "El DUI no está registrado.") from error
@@ -170,7 +175,62 @@ def consultar_solicitud(
     with conexion() as conn:
         fila = buscar_solicitud(conn, id_solicitud, normalizar_dui(x_dui), authorization)
     fila.pop("foto_ref_blob_path")
+    fila["modo_desarrollo"] = MODO_DESARROLLO
     return fila
+
+
+def preparar_verificacion(conn, id_solicitud, dui, foto, authorization):
+    fila = buscar_solicitud(conn, id_solicitud, normalizar_dui(dui), authorization, bloquear=True)
+    if fila["estado"] != "pendiente" and not MODO_DESARROLLO:
+        raise HTTPException(409, "La solicitud ya fue completada.")
+    try:
+        imagen = leer_foto(foto)
+    except FotoInvalida as error:
+        raise HTTPException(422, str(error)) from error
+    referencia = cv2.imread(str(BLOBS / fila["foto_ref_blob_path"]))
+    if referencia is None:
+        raise HTTPException(500, "No se encontró la foto de referencia.")
+    return imagen, referencia
+
+
+def guardar_resultado(conn, id_solicitud, imagen, resultado, traza):
+    """Actualiza la solicitud con el último resultado y registra el intento en el historial."""
+    with persistir_foto("capturas", imagen) as ruta:
+        conn.execute(
+            """
+            UPDATE solicitudes
+            SET estado = %(estado)s, liveness_ok = %(liveness_ok)s, liveness_score = %(liveness_score)s,
+                match_distance = %(match_distance)s, match_verified = %(match_verified)s,
+                foto_capturada_blob_path = %(ruta)s, updated_at = now()
+            WHERE id_solicitud = %(id)s
+            """,
+            {**resultado, "ruta": ruta, "id": id_solicitud},
+        )
+        intento = conn.execute(
+            """
+            INSERT INTO intentos (id_solicitud, estado, liveness_ok, liveness_score, match_distance,
+                                  match_threshold, match_verified, foto_capturada_blob_path, traza)
+            VALUES (%(id)s, %(estado)s, %(liveness_ok)s, %(liveness_score)s, %(match_distance)s,
+                    %(match_threshold)s, %(match_verified)s, %(ruta)s, %(traza)s)
+            RETURNING id_intento
+            """,
+            {**resultado, "ruta": ruta, "id": id_solicitud, "traza": Jsonb(traza)},
+        ).fetchone()
+        conn.commit()
+    return intento["id_intento"]
+
+
+def sin_imagenes(evento):
+    return {k: v for k, v in evento.items() if k != "imagenes"}
+
+
+def respuesta_final(id_solicitud, resultado, id_intento):
+    return {
+        "id_solicitud": str(id_solicitud), "id_intento": str(id_intento),
+        **{k: resultado[k] for k in (
+            "estado", "liveness_ok", "liveness_score", "match_distance", "match_threshold", "match_verified",
+        )},
+    }
 
 
 @app.post("/solicitudes/{id_solicitud}/verificar")
@@ -178,31 +238,63 @@ def verificar_solicitud(
     id_solicitud: UUID, dui: str = Form(), foto: UploadFile = File(),
     authorization: str | None = Header(default=None),
 ):
-    try:
-        with conexion() as conn:
-            fila = buscar_solicitud(conn, id_solicitud, normalizar_dui(dui), authorization, bloquear=True)
-            if fila["estado"] != "pendiente":
-                raise HTTPException(409, "La solicitud ya fue completada.")
-            imagen = leer_foto(foto)
-            referencia = cv2.imread(str(BLOBS / fila["foto_ref_blob_path"]))
-            if referencia is None:
-                raise HTTPException(500, "No se encontró la foto de referencia.")
-            liveness, puntaje, distancia, coincide = verificar(imagen, referencia)
-            estado = "verificada" if liveness and coincide else "rechazada"
-            with persistir_foto("capturas", imagen) as ruta:
-                conn.execute(
-                    """
-                    UPDATE solicitudes
-                    SET estado = %s, liveness_ok = %s, liveness_score = %s, match_distance = %s,
-                        match_verified = %s, foto_capturada_blob_path = %s, updated_at = now()
-                    WHERE id_solicitud = %s
-                    """,
-                    (estado, liveness, puntaje, distancia, coincide, ruta, id_solicitud),
-                )
-                conn.commit()
-    except FotoInvalida as error:
-        raise HTTPException(422, str(error)) from error
-    return {
-        "id_solicitud": id_solicitud, "estado": estado, "liveness_ok": liveness,
-        "liveness_score": puntaje, "match_distance": distancia, "match_verified": coincide,
-    }
+    with conexion() as conn:
+        imagen, referencia = preparar_verificacion(conn, id_solicitud, dui, foto, authorization)
+        try:
+            eventos = list(verificar_pasos(imagen, referencia))
+        except FotoInvalida as error:
+            raise HTTPException(422, str(error)) from error
+        resultado = eventos[-1]
+        id_intento = guardar_resultado(conn, id_solicitud, imagen, resultado, [sin_imagenes(e) for e in eventos])
+    return respuesta_final(id_solicitud, resultado, id_intento)
+
+
+@app.post("/solicitudes/{id_solicitud}/verificar/traza")
+def verificar_con_traza(
+    id_solicitud: UUID, dui: str = Form(), foto: UploadFile = File(),
+    authorization: str | None = Header(default=None),
+):
+    """Igual que /verificar, pero emite cada paso como una línea JSON (NDJSON) a medida que ocurre."""
+    if not MODO_DESARROLLO:
+        raise HTTPException(404, "Disponible solo en modo desarrollo.")
+    with conexion() as conn:
+        imagen, referencia = preparar_verificacion(conn, id_solicitud, dui, foto, authorization)
+
+    def emitir():
+        traza = []
+        try:
+            for evento in verificar_pasos(imagen, referencia):
+                traza.append(sin_imagenes(evento))
+                if evento["paso"] == "resultado":
+                    with conexion() as conn:
+                        id_intento = guardar_resultado(conn, id_solicitud, imagen, evento, traza)
+                    yield json.dumps({"paso": "fin", **respuesta_final(id_solicitud, evento, id_intento)}) + "\n"
+                else:
+                    yield json.dumps(evento) + "\n"
+        except FotoInvalida as error:
+            yield json.dumps({"paso": "error", "mensaje": str(error)}) + "\n"
+        except Exception as error:  # el estado HTTP ya se envió; se informa en el flujo
+            yield json.dumps({"paso": "error", "mensaje": f"Error interno: {type(error).__name__}"}) + "\n"
+
+    return StreamingResponse(
+        emitir(), media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/solicitudes/{id_solicitud}/intentos")
+def listar_intentos(
+    id_solicitud: UUID, x_dui: str = Header(), authorization: str | None = Header(default=None),
+):
+    if not MODO_DESARROLLO:
+        raise HTTPException(404, "Disponible solo en modo desarrollo.")
+    with conexion() as conn:
+        buscar_solicitud(conn, id_solicitud, normalizar_dui(x_dui), authorization)
+        return conn.execute(
+            """
+            SELECT id_intento, estado, liveness_ok, liveness_score, match_distance, match_threshold,
+                   match_verified, created_at
+            FROM intentos WHERE id_solicitud = %s ORDER BY created_at DESC LIMIT 20
+            """,
+            (id_solicitud,),
+        ).fetchall()

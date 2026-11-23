@@ -27,12 +27,39 @@
         <p>Busca luz uniforme y mantén la cámara a la altura de los ojos.</p>
         <div class="visor" id="visor" hidden>
           <video id="video" autoplay playsinline muted aria-label="Vista previa de la cámara"></video>
+          <canvas id="superposicion" aria-hidden="true"></canvas>
           <div class="guia" aria-hidden="true"></div>
         </div>
         <button type="button" id="iniciar">Activar cámara</button>
       </div>
       <p id="estado" role="status" aria-live="polite"></p>
+      <button type="button" id="reintentar" hidden>Probar de nuevo con este enlace</button>
     </section>
+    <aside id="panel" class="panel" hidden aria-label="Panel técnico">
+      <div class="panel-cabecera">
+        <span class="etiqueta">MODO DESARROLLO · PANEL TÉCNICO</span>
+        <p>El enlace es reutilizable: cada intento queda en el historial.</p>
+      </div>
+      <section>
+        <h3>Front · MediaPipe en vivo</h3>
+        <dl id="metricas" class="metricas"></dl>
+      </section>
+      <section>
+        <h3>Backend · pasos de la verificación</h3>
+        <ol id="pasos" class="pasos"><li class="vacio">Aún no se envió ninguna captura.</li></ol>
+      </section>
+      <section>
+        <h3>Bitácora</h3>
+        <ol id="bitacora" class="bitacora"></ol>
+      </section>
+      <section>
+        <h3>Historial de intentos</h3>
+        <table class="historial">
+          <thead><tr><th>Hora</th><th>Estado</th><th>Presencia</th><th>Distancia / umbral</th></tr></thead>
+          <tbody id="historial"></tbody>
+        </table>
+      </section>
+    </aside>
     <footer>Usa únicamente datos de prueba o fotos para las que tengas autorización.</footer>
   </main>
 </body>

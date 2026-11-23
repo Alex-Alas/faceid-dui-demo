@@ -24,3 +24,18 @@ CREATE TABLE solicitudes (
     expires_at timestamptz NOT NULL DEFAULT now() + interval '30 minutes',
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Historial de cada intento de verificación (en modo desarrollo un enlace admite varios).
+CREATE TABLE IF NOT EXISTS intentos (
+    id_intento uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_solicitud uuid NOT NULL REFERENCES solicitudes(id_solicitud),
+    estado text NOT NULL CHECK (estado IN ('verificada', 'rechazada')),
+    liveness_ok boolean,
+    liveness_score double precision,
+    match_distance double precision,
+    match_threshold double precision,
+    match_verified boolean,
+    foto_capturada_blob_path text,
+    traza jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
