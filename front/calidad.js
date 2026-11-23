@@ -15,11 +15,18 @@ export function evaluarRostro(resultado) {
   }
   const matriz = resultado.facialTransformationMatrixes[0]?.data;
   const expresiones = resultado.faceBlendshapes[0]?.categories;
-  if (!matriz || !expresiones) return { error: "Mira hacia la cámara." };
+  if (matriz?.length !== 16 || !expresiones) return { error: "Mira hacia la cámara." };
+  const columnas = [0, 4, 8].map(inicio => {
+    const columna = matriz.slice(inicio, inicio + 3);
+    const escala = Math.hypot(...columna);
+    return escala > 0 && Number.isFinite(escala) ? columna.map(valor => valor / escala) : null;
+  });
+  if (columnas.some(columna => !columna)) return { error: "Mira hacia la cámara." };
+  const [ejeX, ejeY, ejeZ] = columnas;
   const grados = 180 / Math.PI;
-  const yaw = Math.asin(Math.min(1, Math.max(-1, matriz[8]))) * grados;
-  const pitch = Math.atan2(-matriz[9], matriz[10]) * grados;
-  const roll = Math.atan2(-matriz[4], matriz[0]) * grados;
+  const yaw = Math.asin(Math.min(1, Math.max(-1, ejeZ[0]))) * grados;
+  const pitch = Math.atan2(-ejeZ[1], ejeZ[2]) * grados;
+  const roll = Math.atan2(-ejeY[0], ejeX[0]) * grados;
   const parpadeo = lado => expresiones.find(e => e.categoryName === `eyeBlink${lado}`)?.score ?? 1;
   const izquierda = parpadeo("Left");
   const derecha = parpadeo("Right");
