@@ -78,7 +78,8 @@ for n in 2 3; do
   echo "Acceso con DUI o token incorrecto: HTTP 404"
   [[ "$(curl -fsS "$ruta" -H "Authorization: Bearer $token" -H "X-DUI: $dui" | leer_campo estado)" == pendiente ]]
   resultado="$(curl -fsS "$ruta/verificar" -H "Authorization: Bearer $token" \
-    --form-string "dui=$dui" -F "foto=@$carpeta/img$n.jpg")"
+    --form-string "dui=$dui" -F "foto=@$carpeta/img$n.jpg" -F "foto=@$carpeta/img$n.jpg" \
+    -F "foto=@$carpeta/img$n.jpg" -F "foto=@$carpeta/img$n.jpg")"
   python3 -c '
 import json, sys
 r = json.load(sys.stdin)
@@ -86,12 +87,42 @@ mismo = sys.argv[1] == "2"
 if r["liveness_ok"]:
     assert r["match_verified"] is mismo and r["match_distance"] is not None, r
     assert r["estado"] == ("verificada" if mismo else "rechazada"), r
-    print("img{}: liveness aceptado; match={}; distancia={:.6f}".format(sys.argv[1], r["match_verified"], r["match_distance"]))
+    print("Ráfaga img{}: liveness aceptado; match={}; distancia={:.6f}".format(sys.argv[1], r["match_verified"], r["match_distance"]))
 else:
-    assert r["estado"] == "rechazada" and r["match_verified"] is None, r
+    assert r["estado"] == "pendiente" and r["match_verified"] is None and r["intentos_spoof"] == 1, r
     print(f"img{sys.argv[1]}: liveness rechazado; no hubo comparación.")
 ' "$n" <<< "$resultado"
-  esperar_codigo 409 "$ruta/verificar" -H "Authorization: Bearer $token" \
-    --form-string "dui=$dui" -F "foto=@$carpeta/img$n.jpg"
-  echo "Reutilización rechazada: HTTP 409"
+  if [[ "$(leer_campo estado <<< "$resultado")" != pendiente ]]; then
+    esperar_codigo 409 "$ruta/verificar" -H "Authorization: Bearer $token" \
+      --form-string "dui=$dui" -F "foto=@$carpeta/img$n.jpg"
+    echo "Reutilización rechazada: HTTP 409"
+  fi
 done
+
+nueva_solicitud
+resultado="$(curl -fsS "$ruta/verificar" -H "Authorization: Bearer $token" --form-string "dui=$dui" \
+  -F "foto=@$carpeta/img2.jpg" -F "foto=@$carpeta/img3.jpg" \
+  -F "foto=@$carpeta/img2.jpg" -F "foto=@$carpeta/img3.jpg")"
+[[ "$(leer_campo estado <<< "$resultado")" == rechazada ]]
+[[ "$(leer_campo liveness_ok <<< "$resultado")" == True ]]
+[[ "$(leer_campo match_verified <<< "$resultado")" == False ]]
+echo "Dos coincidencias de cuatro: rechazada por falta de mayoría"
+
+nueva_solicitud
+rafaga_spoof=(--form-string "dui=$dui" -F "foto=@$carpeta/img2.jpg" -F "foto=@$carpeta/image_F1.jpg")
+for n in 1 2 3; do
+  resultado="$(curl -fsS "$ruta/verificar" -H "Authorization: Bearer $token" "${rafaga_spoof[@]}")"
+  guardado="$(curl -fsS "$ruta" -H "Authorization: Bearer $token" -H "X-DUI: $dui")"
+  estado=pendiente
+  if [[ "$n" == 3 ]]; then estado=bloqueada_spoof; fi
+  for datos in "$resultado" "$guardado"; do
+    [[ "$(leer_campo estado <<< "$datos")" == "$estado" ]]
+    [[ "$(leer_campo liveness_ok <<< "$datos")" == False ]]
+    [[ "$(leer_campo match_verified <<< "$datos")" == None ]]
+    [[ "$(leer_campo intentos_spoof <<< "$datos")" == "$n" ]]
+    [[ "$(leer_campo intentos_spoof_restantes <<< "$datos")" == "$((3 - n))" ]]
+  done
+  echo "Ráfaga con spoof $n/3: $estado; quedan $((3 - n))"
+done
+esperar_codigo 409 "$ruta/verificar" -H "Authorization: Bearer $token" "${rafaga_spoof[@]}"
+echo "Cuarto intento bloqueado: HTTP 409"

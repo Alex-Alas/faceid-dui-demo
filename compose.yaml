@@ -8,6 +8,7 @@ services:
     volumes:
       - postgres:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/002-capturas.sql:/docker-entrypoint-initdb.d/02-capturas.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U faceid -d faceid -h 127.0.0.1"]
       interval: 3s

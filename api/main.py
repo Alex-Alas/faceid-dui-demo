@@ -2,7 +2,7 @@ import hashlib
 import os
 import re
 import secrets
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -18,6 +18,8 @@ from biometria import FotoInvalida, decodificar, representar, verificar
 BLOBS = Path(os.getenv("BLOB_DIR", "/blobs"))
 FRONT_URL = os.getenv("FRONT_URL", "http://localhost:8080").rstrip("/")
 MAX_BYTES = 5 * 1024 * 1024
+MAX_FOTOS = 5
+MAX_INTENTOS_SPOOF = 3
 app = FastAPI(title="Demo de validación de identidad", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -83,7 +85,7 @@ def buscar_solicitud(conn, id_solicitud, dui, autorizacion, bloquear=False):
     consulta = """
         SELECT s.id_solicitud, s.estado, s.expires_at,
                s.expires_at <= clock_timestamp() AS vencida,
-               s.liveness_ok, s.liveness_score, s.match_distance, s.match_verified,
+               s.liveness_ok, s.liveness_score, s.match_distance, s.match_verified, s.intentos_spoof,
                p.foto_ref_blob_path
         FROM solicitudes s JOIN personas p USING (dui)
         WHERE s.id_solicitud = %s AND s.dui = %s AND s.token_hash = %s
@@ -170,12 +172,13 @@ def consultar_solicitud(
     with conexion() as conn:
         fila = buscar_solicitud(conn, id_solicitud, normalizar_dui(x_dui), authorization)
     fila.pop("foto_ref_blob_path")
+    fila["intentos_spoof_restantes"] = MAX_INTENTOS_SPOOF - fila["intentos_spoof"]
     return fila
 
 
 @app.post("/solicitudes/{id_solicitud}/verificar")
 def verificar_solicitud(
-    id_solicitud: UUID, dui: str = Form(), foto: UploadFile = File(),
+    id_solicitud: UUID, dui: str = Form(), foto: list[UploadFile] = File(max_length=MAX_FOTOS),
     authorization: str | None = Header(default=None),
 ):
     try:
@@ -183,21 +186,27 @@ def verificar_solicitud(
             fila = buscar_solicitud(conn, id_solicitud, normalizar_dui(dui), authorization, bloquear=True)
             if fila["estado"] != "pendiente":
                 raise HTTPException(409, "La solicitud ya fue completada.")
-            imagen = leer_foto(foto)
+            imagenes = [leer_foto(archivo) for archivo in foto]
             referencia = cv2.imread(str(BLOBS / fila["foto_ref_blob_path"]))
             if referencia is None:
                 raise HTTPException(500, "No se encontró la foto de referencia.")
-            liveness, puntaje, distancia, coincide = verificar(imagen, referencia)
-            estado = "verificada" if liveness and coincide else "rechazada"
-            with persistir_foto("capturas", imagen) as ruta:
+            liveness, puntaje, distancia, coincide = verificar(imagenes, referencia)
+            intentos = fila["intentos_spoof"] + (not liveness)
+            if liveness:
+                estado = "verificada" if coincide else "rechazada"
+            else:
+                estado = "bloqueada_spoof" if intentos >= MAX_INTENTOS_SPOOF else "pendiente"
+            with ExitStack() as archivos:
+                rutas = [archivos.enter_context(persistir_foto("capturas", imagen)) for imagen in imagenes]
                 conn.execute(
                     """
                     UPDATE solicitudes
                     SET estado = %s, liveness_ok = %s, liveness_score = %s, match_distance = %s,
-                        match_verified = %s, foto_capturada_blob_path = %s, updated_at = now()
+                        match_verified = %s, intentos_spoof = %s, foto_capturada_blob_path = %s,
+                        fotos_capturadas_blob_paths = fotos_capturadas_blob_paths || %s, updated_at = now()
                     WHERE id_solicitud = %s
                     """,
-                    (estado, liveness, puntaje, distancia, coincide, ruta, id_solicitud),
+                    (estado, liveness, puntaje, distancia, coincide, intentos, rutas[0], rutas, id_solicitud),
                 )
                 conn.commit()
     except FotoInvalida as error:
@@ -205,4 +214,5 @@ def verificar_solicitud(
     return {
         "id_solicitud": id_solicitud, "estado": estado, "liveness_ok": liveness,
         "liveness_score": puntaje, "match_distance": distancia, "match_verified": coincide,
+        "intentos_spoof": intentos, "intentos_spoof_restantes": MAX_INTENTOS_SPOOF - intentos,
     }
