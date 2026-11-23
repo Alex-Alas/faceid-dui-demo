@@ -33,8 +33,8 @@ registrada="$(curl -sS -o /dev/null -w '%{http_code}' "$api/personas" -H "X-Admi
   --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F "foto=@$carpeta/img1.jpg")"
 [[ "$registrada" == 201 || "$registrada" == 409 ]] || { echo "Registro falló: HTTP $registrada"; exit 1; }
 
-png_ancho() {
-  python3 - <<'PY'
+png_prueba() {
+  python3 - "$1" <<'PY'
 import struct
 import sys
 import zlib
@@ -42,18 +42,25 @@ import zlib
 def chunk(tipo, datos):
     return struct.pack(">I", len(datos)) + tipo + datos + struct.pack(">I", zlib.crc32(tipo + datos))
 
+ihdr = struct.pack(">IIBBBBB", 4097, 1, 8, 0, 0, 0, 0)
+if sys.argv[1] == "ihdr-corto":
+    ihdr = ihdr[:10]
 sys.stdout.buffer.write(
     b"\x89PNG\r\n\x1a\n"
-    + chunk(b"IHDR", struct.pack(">IIBBBBB", 4097, 1, 8, 0, 0, 0, 0))
+    + chunk(b"IHDR", ihdr)
     + chunk(b"IDAT", zlib.compress(bytes(4098)))
     + chunk(b"IEND", b"")
 )
 PY
 }
 
-png_ancho | esperar_codigo 422 "$api/personas" -H "X-Admin-Key: $clave" \
+png_prueba ancha | esperar_codigo 422 "$api/personas" -H "X-Admin-Key: $clave" \
   --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F 'foto=@-;filename=ancha.png'
 echo "Imagen de más de 4096 píxeles por lado: HTTP 422"
+
+png_prueba ihdr-corto | esperar_codigo 422 "$api/personas" -H "X-Admin-Key: $clave" \
+  --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F 'foto=@-;filename=ihdr-corto.png'
+echo "PNG con IHDR corto: HTTP 422"
 
 resembrada="$(ADMIN_KEY="$clave" API_URL="$api" bash "$raiz/scripts/sembrar.sh" \
   "$carpeta/img1.jpg" "$dui" "Persona de prueba" "prueba-resiembra")"

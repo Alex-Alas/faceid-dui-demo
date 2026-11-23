@@ -1,3 +1,4 @@
+import struct
 from io import BytesIO
 from threading import Lock
 
@@ -25,12 +26,13 @@ class FotoInvalida(ValueError):
 def decodificar(contenido):
     try:
         with Image.open(BytesIO(contenido), formats=["JPEG", "PNG"]) as cabecera:
-            if max(cabecera.size) > LADO_MAXIMO:
-                raise FotoInvalida("La foto supera 4096 píxeles por lado.")
+            dimensiones = cabecera.size
     except Image.DecompressionBombError as error:
         raise FotoInvalida("La foto supera 4096 píxeles por lado.") from error
-    except (OSError, SyntaxError) as error:
+    except (OSError, SyntaxError, ValueError, struct.error) as error:
         raise FotoInvalida("La imagen no es válida.") from error
+    if max(dimensiones) > LADO_MAXIMO:
+        raise FotoInvalida("La foto supera 4096 píxeles por lado.")
     try:
         imagen = cv2.imdecode(np.frombuffer(contenido, dtype=np.uint8), cv2.IMREAD_COLOR)
     except cv2.error as error:
