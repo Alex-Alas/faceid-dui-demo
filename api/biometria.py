@@ -64,10 +64,19 @@ def representar(imagen):
 
 def verificar(imagenes, referencia):
     with cerrojo:
-        caras = [extraer(imagen, antisuplantacion=True) for imagen in imagenes]
+        caras = []
+        foto_invalida = None
+        for imagen in imagenes:
+            try:
+                caras.append(extraer(imagen, antisuplantacion=True))
+            except FotoInvalida as error:
+                if foto_invalida is None:
+                    foto_invalida = error
         sospechosas = [float(cara["antispoof_score"]) for cara in caras if not cara["is_real"]]
         if sospechosas:
             return False, max(sospechosas), None, None
+        if foto_invalida is not None:
+            raise foto_invalida
         puntaje = min(float(cara["antispoof_score"]) for cara in caras)
         comparaciones = [
             DeepFace.verify(imagen, referencia, model_name=MODELO, detector_backend=DETECTOR)
