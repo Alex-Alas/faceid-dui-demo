@@ -1,12 +1,15 @@
+from io import BytesIO
 from threading import Lock
 
 import cv2
 import numpy as np
 from deepface import DeepFace
 from deepface.modules import modeling
+from PIL import Image
 
 MODELO = "Facenet512"
 DETECTOR = "opencv"
+LADO_MAXIMO = 4096
 cerrojo = Lock()
 
 
@@ -21,10 +24,18 @@ class FotoInvalida(ValueError):
 
 def decodificar(contenido):
     try:
+        with Image.open(BytesIO(contenido), formats=["JPEG", "PNG"]) as cabecera:
+            if max(cabecera.size) > LADO_MAXIMO:
+                raise FotoInvalida("La foto supera 4096 píxeles por lado.")
+    except Image.DecompressionBombError as error:
+        raise FotoInvalida("La foto supera 4096 píxeles por lado.") from error
+    except (OSError, SyntaxError) as error:
+        raise FotoInvalida("La imagen no es válida.") from error
+    try:
         imagen = cv2.imdecode(np.frombuffer(contenido, dtype=np.uint8), cv2.IMREAD_COLOR)
     except cv2.error as error:
         raise FotoInvalida("La imagen no es válida.") from error
-    if imagen is None or max(imagen.shape[:2]) > 4096:
+    if imagen is None or max(imagen.shape[:2]) > LADO_MAXIMO:
         raise FotoInvalida("La imagen no es válida o supera 4096 píxeles por lado.")
     return imagen
 

@@ -33,6 +33,28 @@ registrada="$(curl -sS -o /dev/null -w '%{http_code}' "$api/personas" -H "X-Admi
   --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F "foto=@$carpeta/img1.jpg")"
 [[ "$registrada" == 201 || "$registrada" == 409 ]] || { echo "Registro falló: HTTP $registrada"; exit 1; }
 
+png_ancho() {
+  python3 - <<'PY'
+import struct
+import sys
+import zlib
+
+def chunk(tipo, datos):
+    return struct.pack(">I", len(datos)) + tipo + datos + struct.pack(">I", zlib.crc32(tipo + datos))
+
+sys.stdout.buffer.write(
+    b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", struct.pack(">IIBBBBB", 4097, 1, 8, 0, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(bytes(4098)))
+    + chunk(b"IEND", b"")
+)
+PY
+}
+
+png_ancho | esperar_codigo 422 "$api/personas" -H "X-Admin-Key: $clave" \
+  --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F 'foto=@-;filename=ancha.png'
+echo "Imagen de más de 4096 píxeles por lado: HTTP 422"
+
 for n in 2 3; do
   nueva_solicitud
   esperar_codigo 404 "$ruta" -H "Authorization: Bearer $token" -H "X-DUI: 00000009-0"
