@@ -49,6 +49,16 @@ bash scripts/probar.sh
 
 Son fotos estáticas, no evidencia de presencia física. FasNet puede rechazarlas antes de comparar los rostros; el script muestra si esto ocurre. Estas fotos no ejercitan los gestos frente a la cámara.
 
+## Modo desarrollo (panel técnico)
+
+Para iterar rápido en local, agrega `MODO_DESARROLLO=1` al `.env` y reinicia la API. Con el modo activo:
+
+- Cada enlace vale 30 días y admite intentos ilimitados; cada intento queda en la tabla `intentos`.
+- La web muestra un panel técnico: puntos de MediaPipe sobre el video, métricas en vivo (pose, parpadeo, luz, nitidez), los pasos del backend en tiempo real (FasNet, Facenet512, distancia contra umbral, imágenes) y el historial de intentos.
+- El panel usa `POST /solicitudes/{id}/verificar/traza` (NDJSON) y `GET /solicitudes/{id}/intentos`, que solo existen en este modo.
+
+No lo actives en un despliegue público. Si la base se creó antes de esta versión, crea la tabla con el bloque `intentos` de `db/init.sql`.
+
 ## Límites
 
 - La detección de presencia no está certificada: puede aceptar imágenes de pantalla o rechazar a personas reales. Los gestos del navegador mejoran la captura, pero no constituyen evidencia confiable para la API: el reto no se firma ni se valida en el servidor.
