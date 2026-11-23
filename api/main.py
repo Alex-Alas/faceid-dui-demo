@@ -13,10 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from biometria import FotoInvalida, decodificar, representar, verificar
+from biometria import FotoInvalida, decodificar, obtener_modelo_activo, representar, verificar
+from dev import crear_router_dev
 
 BLOBS = Path(os.getenv("BLOB_DIR", "/blobs"))
 FRONT_URL = os.getenv("FRONT_URL", "http://localhost:8080").rstrip("/")
+MODO_DEV = os.getenv("ENABLE_DEV_TOOLS", "0").strip().lower() in ("1", "true", "yes")
 MAX_BYTES = 5 * 1024 * 1024
 MAX_FOTOS = 5
 MAX_INTENTOS_SPOOF = 3
@@ -109,7 +111,7 @@ def salud():
         raise HTTPException(503, "Base de datos no disponible.") from error
     if not instalado:
         raise HTTPException(503, "No se encontró pgvector.")
-    return {"estado": "ok"}
+    return {"estado": "ok", "modelo_activo": obtener_modelo_activo(), "dev_habilitado": MODO_DEV}
 
 
 @app.post("/personas", status_code=201)
@@ -216,3 +218,19 @@ def verificar_solicitud(
         "liveness_score": puntaje, "match_distance": distancia, "match_verified": coincide,
         "intentos_spoof": intentos, "intentos_spoof_restantes": MAX_INTENTOS_SPOOF - intentos,
     }
+
+
+if MODO_DEV:
+    app.include_router(
+        crear_router_dev(
+            blobs_dir=BLOBS,
+            front_url=FRONT_URL,
+            max_fotos=MAX_FOTOS,
+            conexion_fn=conexion,
+            requerir_admin_fn=requerir_admin,
+            normalizar_dui_fn=normalizar_dui,
+            leer_foto_fn=leer_foto,
+            persistir_foto_fn=persistir_foto,
+            resumir_token_fn=resumir_token,
+        )
+    )

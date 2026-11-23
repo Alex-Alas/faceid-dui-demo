@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Consola de Desarrollo • Face ID DUI</title>
+  <link rel="stylesheet" href="/dev.css">
+  <script type="module" src="/dev.js"></script>
+</head>
+<body>
+  <header class="barra">
+    <div>
+      <span class="etiqueta">MODO DESARROLLADOR · FACE ID DUI</span>
+      <h1>Laboratorio Biométrico (<a href="/">vista cliente</a>)</h1>
+    </div>
+    <form id="form-auth" class="auth-grupo">
+      <label for="admin-key">Admin Key</label>
+      <input id="admin-key" type="password" autocomplete="off" placeholder="Pega tu ADMIN_KEY">
+      <button type="submit" id="btn-conectar">Conectar</button>
+      <span id="badge-auth" class="badge" data-estado="off">Sin conectar</span>
+    </form>
+    <div class="modelo-global">
+      <label for="modelo-global">Modelo activo (enlaces cliente)</label>
+      <div class="fila">
+        <select id="modelo-global" disabled></select>
+        <button type="button" id="btn-guardar-modelo" disabled>Aplicar</button>
+      </div>
+    </div>
+  </header>
+
+  <p id="aviso-global" class="aviso" role="status" aria-live="polite" hidden></p>
+
+  <main class="rejilla">
+    <section class="tarjeta span-2" aria-labelledby="sec-sujeto">
+      <h2 id="sec-sujeto">1. Registrar / Actualizar DUI y Generar Enlaces</h2>
+      <div id="lista-duis" class="chips" aria-label="DUIs registrados"></div>
+      <div class="sujeto-grid">
+        <form id="form-persona" class="col">
+          <div class="campos-par">
+            <div>
+              <label for="dui">Número de DUI</label>
+              <input id="dui" name="dui" type="text" inputmode="numeric" maxlength="10"
+                pattern="[0-9]{8}-?[0-9]" placeholder="00000000-0" required>
+            </div>
+            <div>
+              <label for="nombre">Nombre completo</label>
+              <input id="nombre" name="nombre" type="text" maxlength="150" placeholder="Persona de prueba" required>
+            </div>
+          </div>
+          <label for="foto-ref">Imagen de referencia (JPEG o PNG, un solo rostro)</label>
+          <input id="foto-ref" name="foto" type="file" accept="image/jpeg,image/png">
+          <div class="acciones">
+            <button type="submit" id="btn-guardar-persona" disabled>Guardar DUI y generar enlace</button>
+            <button type="button" id="btn-solo-enlace" class="secundario" disabled>Generar nuevo enlace</button>
+          </div>
+        </form>
+        <div class="preview-box">
+          <span class="subtitulo">Foto de referencia</span>
+          <img id="preview-ref" alt="Vista previa de referencia" hidden>
+          <p id="preview-ref-vacio" class="tenue">Selecciona un DUI o adjunta una imagen.</p>
+        </div>
+      </div>
+      <div id="caja-enlace" class="enlace-box" hidden>
+        <label for="url-generada">Enlace de verificación generado (válido 30 min):</label>
+        <div class="fila">
+          <input id="url-generada" type="text" readonly>
+          <button type="button" id="btn-copiar" class="secundario">Copiar</button>
+          <a id="btn-abrir" class="btn-link" href="#" target="_blank" rel="noopener">Abrir ↗</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="tarjeta" aria-labelledby="sec-camara">
+      <div class="cabecera-sec">
+        <h2 id="sec-camara">2. Feed en Vivo + Overlay MediaPipe</h2>
+        <label class="check"><input id="saltar-gestos" type="checkbox"> Saltar gestos (ráfaga directa)</label>
+      </div>
+      <div class="acciones">
+        <button type="button" id="btn-iniciar-camara" disabled>Iniciar cámara en vivo</button>
+        <button type="button" id="btn-detener-camara" class="secundario" disabled>Detener</button>
+        <button type="button" id="btn-reevaluar" class="secundario" disabled>Re-evaluar ráfaga</button>
+      </div>
+      <div class="visor-dev">
+        <video id="video" autoplay playsinline muted aria-label="Cámara en vivo"></video>
+        <canvas id="overlay" aria-hidden="true"></canvas>
+        <div class="guia" aria-hidden="true"></div>
+      </div>
+      <p id="estado-camara" class="estado-camara">Cámara inactiva.</p>
+      <div class="rafaga-strip" id="capturas-preview"></div>
+      <div class="fijas-box">
+        <label for="fotos-fijas">Probar con fotos fijas sin cámara (1 a 5 imágenes):</label>
+        <div class="fila">
+          <input id="fotos-fijas" type="file" accept="image/jpeg,image/png" multiple>
+          <button type="button" id="btn-evaluar-fijas" disabled>Evaluar archivos</button>
+        </div>
+        <label class="check"><input id="ignorar-spoof" type="checkbox"> Ignorar bloqueo anti-spoof (para fotos estáticas)</label>
+      </div>
+    </section>
+
+    <section class="tarjeta" aria-labelledby="sec-telemetria">
+      <h2 id="sec-telemetria">3. Telemetría MediaPipe y Calidad (50 ms)</h2>
+      <dl class="metricas">
+        <div><dt>Fase</dt><dd id="m-fase">—</dd></div>
+        <div><dt>Rostros</dt><dd id="m-rostros">—</dd></div>
+        <div><dt>Luz promedio</dt><dd id="m-luz">—</dd></div>
+        <div><dt>Control luz (650 ms)</dt><dd id="m-luz-estable">—</dd></div>
+        <div><dt>Nitidez (mín 45)</dt><dd id="m-nitidez">—</dd></div>
+        <div><dt>Caja (w × h)</dt><dd id="m-caja">—</dd></div>
+        <div><dt>Centro (x, y)</dt><dd id="m-centro">—</dd></div>
+        <div><dt>Pose Yaw / Pitch / Roll</dt><dd id="m-pose">—</dd></div>
+        <div><dt>Frontal / Captura</dt><dd id="m-frontal">—</dd></div>
+        <div><dt>Parpadeo (Izq / Der)</dt><dd id="m-ojos">—</dd></div>
+        <div><dt>MediaPipe latencia</dt><dd id="m-latencia">—</dd></div>
+        <div><dt>Ráfaga</dt><dd id="m-rafaga">0 / 4</dd></div>
+      </dl>
+      <p class="subtitulo">Instrucción / Diagnóstico actual</p>
+      <p id="m-mensaje" class="diagnostico">—</p>
+    </section>
+
+    <section class="tarjeta span-2" aria-labelledby="sec-modelos">
+      <div class="cabecera-sec">
+        <h2 id="sec-modelos">4. Ciclado de Modelos y Comparativa Backend</h2>
+        <div class="acciones">
+          <button type="button" id="btn-ciclar-todos" disabled>Ciclar todos los modelos</button>
+          <button type="button" id="btn-evaluar-seleccion" class="secundario" disabled>Evaluar seleccionados</button>
+        </div>
+      </div>
+      <div id="selector-modelos" class="modelos-checks"></div>
+      <div id="resumen-spoof" class="resumen-spoof" hidden></div>
+      <div class="tabla-wrap">
+        <table id="tabla-resultados" hidden>
+          <thead>
+            <tr>
+              <th>Modelo</th>
+              <th>Verificado</th>
+              <th>Distancia mediana</th>
+              <th>Umbral</th>
+              <th>Fotos OK</th>
+              <th>Distancias por foto</th>
+              <th>Tiempo</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <details id="raw-wrap" hidden>
+        <summary>Ver respuesta JSON cruda</summary>
+        <pre id="raw-json"></pre>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

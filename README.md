@@ -58,6 +58,18 @@ bash scripts/probar.sh
 
 Son fotos estáticas, no evidencia de presencia física. FasNet puede rechazarlas antes de comparar los rostros; el script muestra si esto ocurre. Estas fotos no ejercitan los gestos frente a la cámara.
 
+## Consola de desarrollo y ciclado de modelos
+
+Con `ENABLE_DEV_TOOLS=1` (habilitado por defecto en `compose.yaml`, desactivable en producción poniendo `ENABLE_DEV_TOOLS=0`), se expone `/dev` en la web y `/dev/*` en la API (protegidos con `X-Admin-Key`):
+
+- **Registro y reemplazo de DUIs:** permite subir o actualizar la foto de referencia de cualquier DUI desde el navegador y generar enlaces de cliente al instante.
+- **Feed en vivo y telemetría MediaPipe:** muestra los landmarks faciales, recorte de luminancia, pose 3D (`yaw`/`pitch`/`roll`), nitidez, estado de parpadeo y ráfaga en tiempo real.
+- **Ciclado de modelos (`Facenet512`, `ArcFace`, `GhostFaceNet`, `SFace`, `Facenet`):** permite cambiar el modelo activo (`FACEID_MODEL` / `POST /dev/modelo-activo`) o comparar todos los modelos sobre la misma ráfaga desde `/dev` o por CLI:
+
+```sh
+bash scripts/ciclar-modelos.sh
+```
+
 ## Límites
 
 - La detección de presencia no está certificada: puede aceptar imágenes de pantalla o rechazar a personas reales. Los gestos del navegador mejoran la captura, pero no constituyen evidencia confiable para la API: el reto no se firma ni se valida en el servidor.

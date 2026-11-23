@@ -28,6 +28,8 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}
       ADMIN_KEY: ${ADMIN_KEY:?Configura ADMIN_KEY en .env}
       FRONT_URL: ${FRONT_URL:-http://localhost:8080}
+      ENABLE_DEV_TOOLS: ${ENABLE_DEV_TOOLS:-1}
+      FACEID_MODEL: ${FACEID_MODEL:-Facenet512}
     volumes:
       - blobs:/blobs
   front:

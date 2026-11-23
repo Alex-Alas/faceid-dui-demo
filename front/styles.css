@@ -36,4 +36,7 @@ video { display: block; max-width: 100%; max-height: 45vh; transform: scaleX(-1)
 #estado:not(:empty) { background: #edf3fb; margin: 1rem 0 0; padding: .7rem .85rem; border-radius: .55rem; font-weight: 600; }
 #estado[data-tipo="error"] { color: #8d2635; background: #fff0f2; }
 #estado[data-tipo="exito"] { color: #125335; background: #e6f7ed; }
+#acceso-dev { margin: 1rem 0 0; }
+.enlace-dev { display: inline-block; font-weight: 700; color: #16479c; text-decoration: none; border: 1px solid #cddcf2; border-radius: .55rem; padding: .55rem .9rem; background: #edf3fb; }
+.enlace-dev:hover { background: #dce8fa; }
 footer { font-size: .85rem; color: #455e81; margin: 1rem 0; }

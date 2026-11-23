@@ -1,6 +1,7 @@
 export function evaluarRostro(resultado) {
-  if (resultado.faceLandmarks.length !== 1) {
-    return { error: resultado.faceLandmarks.length ? "Debe verse solo una persona." : "Sitúa tu rostro en la guía." };
+  const rostros = resultado.faceLandmarks.length;
+  if (rostros !== 1) {
+    return { rostros, error: rostros ? "Debe verse solo una persona." : "Sitúa tu rostro en la guía." };
   }
   const puntos = resultado.faceLandmarks[0];
   const x = puntos.map(p => p.x);
@@ -8,20 +9,20 @@ export function evaluarRostro(resultado) {
   const caja = { x: Math.min(...x), y: Math.min(...y) };
   caja.w = Math.max(...x) - caja.x;
   caja.h = Math.max(...y) - caja.y;
-  if (caja.w < .22 || caja.h < .32) return { caja, error: "Acerca un poco el rostro." };
-  if (caja.w > .72 || caja.h > .85) return { caja, error: "Aléjate un poco de la cámara." };
+  if (caja.w < .22 || caja.h < .32) return { rostros, caja, error: "Acerca un poco el rostro." };
+  if (caja.w > .72 || caja.h > .85) return { rostros, caja, error: "Aléjate un poco de la cámara." };
   if (Math.abs(caja.x + caja.w / 2 - .5) > .16 || Math.abs(caja.y + caja.h / 2 - .5) > .16) {
-    return { caja, error: "Centra tu rostro en la guía." };
+    return { rostros, caja, error: "Centra tu rostro en la guía." };
   }
   const matriz = resultado.facialTransformationMatrixes[0]?.data;
   const expresiones = resultado.faceBlendshapes[0]?.categories;
-  if (matriz?.length !== 16 || !expresiones) return { caja, error: "Mira hacia la cámara." };
+  if (matriz?.length !== 16 || !expresiones) return { rostros, caja, error: "Mira hacia la cámara." };
   const columnas = [0, 4, 8].map(inicio => {
     const columna = matriz.slice(inicio, inicio + 3);
     const escala = Math.hypot(...columna);
     return escala > 0 && Number.isFinite(escala) ? columna.map(valor => valor / escala) : null;
   });
-  if (columnas.some(columna => !columna)) return { caja, error: "Mira hacia la cámara." };
+  if (columnas.some(columna => !columna)) return { rostros, caja, error: "Mira hacia la cámara." };
   const [ejeX, ejeY, ejeZ] = columnas;
   const grados = 180 / Math.PI;
   const yaw = Math.asin(Math.min(1, Math.max(-1, ejeZ[0]))) * grados;
@@ -31,7 +32,9 @@ export function evaluarRostro(resultado) {
   const izquierda = parpadeo("Left");
   const derecha = parpadeo("Right");
   return {
-    caja, yaw, pitch, roll,
+    rostros, caja, yaw, pitch, roll,
+    parpadeoIzq: izquierda,
+    parpadeoDer: derecha,
     frontal: Math.abs(yaw) < 12 && Math.abs(pitch) < 18 && Math.abs(roll) < 15,
     frontalParaCaptura: Math.abs(yaw) < 10 && Math.abs(pitch) < 12 && Math.abs(roll) < 10,
     abiertos: Math.max(izquierda, derecha) < .4,
@@ -45,8 +48,8 @@ export function evaluarImagen(rgba, ancho, alto) {
     luminancias.push(.2126 * rgba[i] + .7152 * rgba[i + 1] + .0722 * rgba[i + 2]);
   }
   const luz = luminancias.reduce((suma, valor) => suma + valor, 0) / luminancias.length;
-  if (luz < 65) return { iluminacion: "baja" };
-  if (luz > 225) return { iluminacion: "alta" };
+  if (luz < 65) return { iluminacion: "baja", luz };
+  if (luz > 225) return { iluminacion: "alta", luz };
   let detalle = 0;
   for (let y = 1; y < alto - 1; y++) {
     for (let x = 1; x < ancho - 1; x++) {
@@ -59,6 +62,8 @@ export function evaluarImagen(rgba, ancho, alto) {
   const nitidez = detalle / ((ancho - 2) * (alto - 2));
   return {
     iluminacion: "adecuada",
+    luz,
+    nitidez,
     error: nitidez < 45 ? "La imagen está borrosa. Mantén la cámara quieta." : null,
   };
 }
