@@ -55,6 +55,13 @@ png_ancho | esperar_codigo 422 "$api/personas" -H "X-Admin-Key: $clave" \
   --form-string "dui=$dui" --form-string "nombre=Persona de prueba" -F 'foto=@-;filename=ancha.png'
 echo "Imagen de más de 4096 píxeles por lado: HTTP 422"
 
+resembrada="$(ADMIN_KEY="$clave" API_URL="$api" bash "$raiz/scripts/sembrar.sh" \
+  "$carpeta/img1.jpg" "$dui" "Persona de prueba" "prueba-resiembra")"
+ruta="$api/solicitudes/$(leer_campo id_solicitud <<< "$resembrada")"
+token="$(leer_campo token <<< "$resembrada")"
+esperar_codigo 200 "$ruta" -H "Authorization: Bearer $token" -H "X-DUI: $dui"
+echo "DUI existente: se creó una nueva solicitud válida"
+
 for n in 2 3; do
   nueva_solicitud
   esperar_codigo 404 "$ruta" -H "Authorization: Bearer $token" -H "X-DUI: 00000009-0"
