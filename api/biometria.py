@@ -62,12 +62,17 @@ def representar(imagen):
         )[0]["embedding"]
 
 
-def verificar(imagen, referencia):
+def verificar(imagenes, referencia):
     with cerrojo:
-        cara = extraer(imagen, antisuplantacion=True)
-        if not cara["is_real"]:
-            return False, float(cara["antispoof_score"]), None, None
-        comparacion = DeepFace.verify(
-            imagen, referencia, model_name=MODELO, detector_backend=DETECTOR,
-        )
-        return True, float(cara["antispoof_score"]), float(comparacion["distance"]), bool(comparacion["verified"])
+        caras = [extraer(imagen, antisuplantacion=True) for imagen in imagenes]
+        sospechosas = [float(cara["antispoof_score"]) for cara in caras if not cara["is_real"]]
+        if sospechosas:
+            return False, max(sospechosas), None, None
+        puntaje = min(float(cara["antispoof_score"]) for cara in caras)
+        comparaciones = [
+            DeepFace.verify(imagen, referencia, model_name=MODELO, detector_backend=DETECTOR)
+            for imagen in imagenes
+        ]
+        distancias = sorted(float(comparacion["distance"]) for comparacion in comparaciones)
+        coincide = sum(bool(comparacion["verified"]) for comparacion in comparaciones) > len(imagenes) / 2
+        return True, puntaje, distancias[len(distancias) // 2], coincide

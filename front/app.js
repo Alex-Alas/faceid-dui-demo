@@ -1,5 +1,5 @@
 import { FaceLandmarker, FilesetResolver } from "/mediapipe/vision_bundle.mjs";
-import { evaluarImagen, evaluarRostro } from "./calidad.js";
+import { crearControlLuz, crearControlRafaga, evaluarImagen, evaluarRostro } from "./calidad.js";
 
 const elemento = id => document.getElementById(id);
 const solicitud = new URLSearchParams(location.search).get("solicitud");
@@ -10,14 +10,22 @@ const video = elemento("video");
 const muestra = document.createElement("canvas");
 muestra.width = muestra.height = 80;
 const contexto = muestra.getContext("2d", { willReadFrequently: true });
+const controlarLuz = crearControlLuz();
+const controlarRafaga = crearControlRafaga();
+const mensajesLuz = {
+  buscando: "Iluminación: coloca tu rostro en la guía para medirla.",
+  baja: "Poca luz: acércate a una fuente de luz frente a ti.",
+  alta: "Demasiada luz: evita que ilumine tu rostro directamente.",
+  ajustando: "Iluminación: mantén la luz estable un momento.",
+  adecuada: "Iluminación adecuada.",
+};
 let dui;
 let camara;
 let modelo;
 let fase;
 let ultimaMuestra;
 let ultimoTiempoVideo;
-let fotogramas;
-let mejor;
+let fotogramas = [];
 let inicioParpadeo;
 
 function anunciar(mensaje, tipo = "") {
@@ -40,8 +48,19 @@ function mostrarResultado(datos) {
   elemento("captura").hidden = true;
   elemento("titulo-paso").textContent = "Resultado";
   if (datos.estado === "verificada") anunciar("Identidad verificada.", "exito");
+  else if (datos.estado === "bloqueada_spoof") {
+    anunciar("Verificación bloqueada tras tres detecciones de posible suplantación. Solicita un nuevo enlace.", "error");
+  }
   else if (!datos.liveness_ok) anunciar("No pudimos confirmar la presencia real. Solicita un nuevo enlace.", "error");
   else anunciar("El rostro no coincide con la foto de referencia. Solicita un nuevo enlace.", "error");
+}
+
+function anunciarReintento(restantes) {
+  const aviso = restantes === 1 ? "Te queda 1 intento." : `Te quedan ${restantes} intentos.`;
+  tituloCaptura("2. Repite la captura");
+  elemento("iniciar").textContent = "Volver a activar la cámara";
+  elemento("iniciar").hidden = false;
+  anunciar(`Detectamos una posible suplantación. ${aviso} Usa tu rostro directamente frente a la cámara.`, "error");
 }
 
 if (!solicitud || !token) {
@@ -64,7 +83,8 @@ elemento("formulario").addEventListener("submit", async evento => {
     elemento("formulario").hidden = true;
     elemento("captura").hidden = false;
     elemento("titulo-paso").textContent = "2. Prepara la cámara";
-    anunciar("");
+    if (datos.intentos_spoof) anunciarReintento(datos.intentos_spoof_restantes);
+    else anunciar("");
   } catch (error) {
     anunciar(error.message, "error");
   } finally {
@@ -77,40 +97,57 @@ function detenerCamara() {
   camara = null;
   video.srcObject = null;
   elemento("visor").hidden = true;
+  elemento("luz").hidden = true;
+  controlarLuz("buscando");
 }
 
 function medirCalidad(caja) {
+  const x = Math.max(0, caja.x + caja.w * .14);
+  const y = Math.max(0, caja.y + caja.h * .12);
+  const ancho = Math.min(1, caja.x + caja.w * .86) - x;
+  const alto = Math.min(1, caja.y + caja.h * .88) - y;
+  if (ancho <= 0 || alto <= 0) return { iluminacion: "buscando" };
   contexto.drawImage(
-    video, caja.x * video.videoWidth, caja.y * video.videoHeight,
-    caja.w * video.videoWidth, caja.h * video.videoHeight, 0, 0, muestra.width, muestra.height,
+    video, x * video.videoWidth, y * video.videoHeight,
+    ancho * video.videoWidth, alto * video.videoHeight, 0, 0, muestra.width, muestra.height,
   );
   const { data } = contexto.getImageData(0, 0, muestra.width, muestra.height);
   return evaluarImagen(data, muestra.width, muestra.height);
 }
 
-function guardarCandidato(puntaje) {
-  if (mejor && puntaje <= mejor.puntaje) return;
+function guardarFotograma() {
   const lienzo = document.createElement("canvas");
   const escala = Math.min(1, 1280 / video.videoWidth);
   lienzo.width = Math.round(video.videoWidth * escala);
   lienzo.height = Math.round(video.videoHeight * escala);
   lienzo.getContext("2d").drawImage(video, 0, 0, lienzo.width, lienzo.height);
-  mejor = { lienzo, puntaje };
+  fotogramas.push(lienzo);
 }
 
-async function enviarCaptura(lienzo) {
+function mostrarLuz(luz) {
+  const indicador = elemento("luz");
+  indicador.hidden = false;
+  if (indicador.dataset.luz !== luz) {
+    indicador.dataset.luz = luz;
+    indicador.textContent = mensajesLuz[luz];
+  }
+}
+
+async function enviarCaptura(lienzos) {
   detenerCamara();
   tituloCaptura("3. Verificando");
   anunciar("Comparando el rostro con la foto de referencia…");
   try {
-    const foto = await new Promise(resolve => lienzo.toBlob(resolve, "image/jpeg", .9));
-    if (!foto) throw new Error("No se pudo guardar la captura.");
+    const fotos = await Promise.all(lienzos.map(lienzo => new Promise(resolve => lienzo.toBlob(resolve, "image/jpeg", .9))));
+    if (fotos.some(foto => !foto)) throw new Error("No se pudo guardar la ráfaga.");
     const contenido = new FormData();
     contenido.set("dui", dui);
-    contenido.set("foto", foto, "captura.jpg");
-    mostrarResultado(await solicitar(`${ruta}/verificar`, {
+    fotos.forEach((foto, i) => contenido.append("foto", foto, `captura-${i + 1}.jpg`));
+    const datos = await solicitar(`${ruta}/verificar`, {
       method: "POST", headers: autorizacion, body: contenido,
-    }));
+    });
+    if (datos.estado === "pendiente") anunciarReintento(datos.intentos_spoof_restantes);
+    else mostrarResultado(datos);
   } catch (error) {
     tituloCaptura("2. Vuelve a intentar la captura");
     anunciar(error.message, "error");
@@ -123,15 +160,23 @@ function tituloCaptura(titulo) {
 }
 
 function limpiarCandidatos() {
-  fotogramas = 0;
-  mejor = null;
+  controlarRafaga(null);
+  fotogramas = [];
 }
 
 function procesarRostro(rostro, ahora) {
+  const calidad = rostro.caja ? medirCalidad(rostro.caja) : { iluminacion: "buscando" };
+  const luz = controlarLuz(calidad.iluminacion, ahora);
+  mostrarLuz(luz);
   if (rostro.error) {
     fase = "preparar";
     limpiarCandidatos();
     anunciar(rostro.error);
+    return;
+  }
+  if (luz !== "adecuada") {
+    limpiarCandidatos();
+    anunciar("Espera a que la iluminación sea adecuada para continuar.");
     return;
   }
 
@@ -143,7 +188,7 @@ function procesarRostro(rostro, ahora) {
     }
     return;
   }
-  if (!rostro.frontal) {
+  if (!(fase === "capturar" ? rostro.frontalParaCaptura : rostro.frontal)) {
     if (fase === "capturar") limpiarCandidatos();
     if (fase === "abrir") fase = "parpadear";
     anunciar("Mira de frente a la cámara.");
@@ -167,7 +212,6 @@ function procesarRostro(rostro, ahora) {
     anunciar("Abre los ojos y mira a la cámara.");
     return;
   }
-  const calidad = medirCalidad(rostro.caja);
   if (calidad.error) {
     limpiarCandidatos();
     anunciar(calidad.error);
@@ -178,10 +222,15 @@ function procesarRostro(rostro, ahora) {
     anunciar("Parpadea una vez y vuelve a abrir los ojos.");
     return;
   }
-  anunciar("Mantén el rostro quieto mientras se toma la foto.");
-  fotogramas++;
-  guardarCandidato(calidad.puntaje);
-  if (fotogramas === 5) void enviarCaptura(mejor.lienzo);
+  const rafaga = controlarRafaga(rostro, ahora);
+  if (rafaga.reinicio) fotogramas = [];
+  if (rafaga.segundos) {
+    anunciar(`Mantén la mirada al frente. Captura en ${rafaga.segundos}…`);
+    return;
+  }
+  if (rafaga.tomar) guardarFotograma();
+  anunciar(`Tomando fotos: ${rafaga.cantidad} de 4. Mantente quieto.`);
+  if (rafaga.completa) void enviarCaptura(fotogramas);
 }
 
 function capturar(ahora) {
@@ -221,6 +270,7 @@ elemento("iniciar").addEventListener("click", async () => {
     elemento("visor").hidden = false;
     await video.play();
     boton.hidden = true;
+    mostrarLuz("buscando");
     fase = "preparar";
     ultimaMuestra = 0;
     ultimoTiempoVideo = -1;

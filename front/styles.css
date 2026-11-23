@@ -30,6 +30,9 @@ button:disabled { opacity: .65; cursor: default; }
 .visor { position: relative; overflow: hidden; width: fit-content; margin: 0 auto 1rem; border-radius: .75rem; background: #182237; }
 video { display: block; max-width: 100%; max-height: 45vh; transform: scaleX(-1); }
 .guia { position: absolute; inset: 10% 26%; border: 2px dashed white; border-radius: 48%; pointer-events: none; box-shadow: 0 0 0 999px #0e1c3440; }
+#luz { border-left: .25rem solid #7486a2; padding: .6rem .75rem; border-radius: .35rem; background: #edf3fb; font-weight: 650; }
+#luz[data-luz="baja"], #luz[data-luz="alta"] { border-color: #a65b00; color: #672e00; background: #fff1d6; }
+#luz[data-luz="adecuada"] { border-color: #288459; color: #125335; background: #e6f7ed; }
 #estado:not(:empty) { background: #edf3fb; margin: 1rem 0 0; padding: .7rem .85rem; border-radius: .55rem; font-weight: 600; }
 #estado[data-tipo="error"] { color: #8d2635; background: #fff0f2; }
 #estado[data-tipo="exito"] { color: #125335; background: #e6f7ed; }
