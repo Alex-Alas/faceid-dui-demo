@@ -1,0 +1,36 @@
+:root {
+  color-scheme: light;
+  font: 100%/1.55 system-ui, sans-serif;
+  color: #192842;
+  background: #edf3fb;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(100% - 2rem, 35rem); margin: 3rem auto; }
+header { margin-bottom: 1.75rem; }
+.etiqueta { color: #2354a9; font-size: .8rem; letter-spacing: .12em; font-weight: 800; }
+h1 { font-size: clamp(2rem, 7vw, 3rem); line-height: 1.1; margin: .45rem 0 .8rem; }
+h2 { margin: 0 0 .85rem; font-size: 1.3rem; }
+p { margin: 0 0 .85rem; }
+.tarjeta {
+  background: white;
+  border: 1px solid #cddcf2;
+  border-radius: 1rem;
+  padding: clamp(1.25rem, 5vw, 2rem);
+  box-shadow: 0 .5rem 2rem #1928420d;
+}
+label { display: block; font-weight: 650; }
+input, button { font: inherit; border-radius: .55rem; }
+input { width: 100%; padding: .7rem .85rem; margin: .4rem 0 1rem; border: 1px solid #7486a2; }
+button { background: #16479c; color: white; border: 0; padding: .65rem 1.1rem; font-weight: 700; cursor: pointer; }
+button:hover { background: #123977; }
+button:disabled { opacity: .65; cursor: default; }
+:focus-visible { outline: 3px solid #467bda; outline-offset: 3px; }
+.visor { position: relative; overflow: hidden; width: fit-content; margin: 0 auto 1rem; border-radius: .75rem; background: #182237; }
+video { display: block; max-width: 100%; max-height: 45vh; transform: scaleX(-1); }
+.guia { position: absolute; inset: 10% 26%; border: 2px dashed white; border-radius: 48%; pointer-events: none; box-shadow: 0 0 0 999px #0e1c3440; }
+#estado:not(:empty) { background: #edf3fb; margin: 1rem 0 0; padding: .7rem .85rem; border-radius: .55rem; font-weight: 600; }
+#estado[data-tipo="error"] { color: #8d2635; background: #fff0f2; }
+#estado[data-tipo="exito"] { color: #125335; background: #e6f7ed; }
+footer { font-size: .85rem; color: #455e81; margin: 1rem 0; }

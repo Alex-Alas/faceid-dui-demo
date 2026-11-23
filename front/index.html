@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Verificación de identidad • Face ID DUI</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="etiqueta">DEMO · FACE ID DUI</span>
+      <h1>Verifica tu identidad</h1>
+      <p>Confirma tu DUI, sigue las indicaciones de la cámara y verifica si tu rostro coincide con la foto de referencia.</p>
+    </header>
+    <section class="tarjeta" aria-labelledby="titulo-paso">
+      <h2 id="titulo-paso">1. Confirma tu DUI</h2>
+      <form id="formulario">
+        <label for="dui">Número de DUI</label>
+        <input id="dui" name="dui" type="text" inputmode="numeric" autocomplete="off"
+          maxlength="10" pattern="[0-9]{8}-?[0-9]" placeholder="00000000-0" required>
+        <button id="continuar">Continuar</button>
+      </form>
+      <div id="captura" hidden>
+        <p>Busca luz uniforme y mantén la cámara a la altura de los ojos.</p>
+        <div class="visor" id="visor" hidden>
+          <video id="video" autoplay playsinline muted aria-label="Vista previa de la cámara"></video>
+          <div class="guia" aria-hidden="true"></div>
+        </div>
+        <button type="button" id="iniciar">Activar cámara</button>
+      </div>
+      <p id="estado" role="status" aria-live="polite"></p>
+    </section>
+    <footer>Usa únicamente datos de prueba o fotos para las que tengas autorización.</footer>
+  </main>
+</body>
+</html>

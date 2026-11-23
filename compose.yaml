@@ -1,0 +1,41 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: faceid
+      POSTGRES_DB: faceid
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faceid -d faceid -h 127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      PGHOST: db
+      PGDATABASE: faceid
+      PGUSER: faceid
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}
+      ADMIN_KEY: ${ADMIN_KEY:?Configura ADMIN_KEY en .env}
+      FRONT_URL: ${FRONT_URL:-http://localhost:8080}
+    volumes:
+      - blobs:/blobs
+  front:
+    build: ./front
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  postgres:
+  blobs:
